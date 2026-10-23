@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Environment Variables & Secrets
+.env
+server/.env
+client/.env
+
+# Build Outputs & Vite Bundles
+dist/
+client/dist/
+
+# Operating System Files
+.DS_Store
+Thumbs.db
