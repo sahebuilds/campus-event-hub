@@ -1,94 +1,85 @@
-const Ticket = require('../models/Ticket');
-const Event = require('../models/Event');
+import Ticket from "../models/Ticket.js";
+import Event from "../models/Event.js";
 
-// Create Ticket (with Duplicate Booking Prevention)
-exports.createTicket = async (req, res) => {
-    try {
-        const { eventId, userId, studentName, studentEmail } = req.body;
+// @desc    Create / Reserve a ticket pass
+// @route   POST /api/tickets
+// @access  Public / Student
+export const createTicket = async (req, res) => {
+  try {
+    const { eventId, event, studentName, studentId, studentID, prn, email, seatAllocation } = req.body;
 
-        // Check if student already booked this event
-        const existingTicket = await Ticket.findOne({ eventId, userId });
-        if (existingTicket) {
-            return res.status(400).json({ message: "You have already registered for this event!" });
-        }
+    // Resolve event ID (handles both eventId and event naming conventions from frontend)
+    const targetEventId = eventId || event;
 
-        // Check event capacity
-        const event = await Event.findById(eventId);
-        if (!event) {
-            return res.status(404).json({ message: "Event not found" });
-        }
-
-        if (event.reservedCount >= event.capacity) {
-            return res.status(400).json({ message: "Event is currently sold out!" });
-        }
-
-        // Generate a unique token ID (#OX-XXXX-X)
-        const uniqueToken = `#OX-${Math.floor(1000 + Math.random() * 9000)}-${Math.floor(10 + Math.random() * 90)}`;
-
-        const newTicket = new Ticket({
-            eventId,
-            userId,
-            studentName,
-            studentEmail,
-            ticketToken: uniqueToken
-        });
-
-        await newTicket.save();
-
-        // Increment reserved count on the event
-        event.reservedCount += 1;
-        await event.save();
-
-        res.status(201).json({ message: "Pass reserved successfully!", ticket: newTicket });
-    } catch (error) {
-        res.status(500).json({ message: error.message });
+    if (!targetEventId) {
+      return res.status(400).json({ message: "Event ID is required to book a ticket." });
     }
+
+    // Verify event exists and has capacity
+    const targetEvent = await Event.findById(targetEventId);
+    if (!targetEvent) {
+      return res.status(404).json({ message: "Event not found." });
+    }
+
+    // Generate unique verification token if not provided
+    const generatedTokenId = `OX-${Math.floor(1000 + Math.random() * 9000)}-${Math.floor(10 + Math.random() * 90)}`;
+    
+    // Generate default seat allocation if not provided
+    const generatedSeat = seatAllocation || `Zone-A-${Math.floor(1 + Math.random() * 50)}`;
+
+    const newTicket = new Ticket({
+      event: targetEventId,
+      studentName: studentName || "Student Participant",
+      studentId: studentId || studentID || prn || "STU-2521001",
+      email: email || "student@campus.edu",
+      tokenId: generatedTokenId,
+      seatAllocation: generatedSeat
+    });
+
+    const savedTicket = await newTicket.save();
+    res.status(201).json(savedTicket);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
 };
 
-// Get Attendees for a Specific Event (For Organizers)
-exports.getEventAttendees = async (req, res) => {
-    try {
-        const { eventId } = req.params;
-        const attendees = await Ticket.find({ eventId }).sort({ createdAt: -1 });
-        res.status(200).json(attendees);
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
+// @desc    Get tickets for a specific user
+// @route   GET /api/tickets/user/:userId
+export const getUserTickets = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const tickets = await Ticket.find({ studentId: userId }).populate("event");
+    res.status(200).json(tickets);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 };
 
-// Get User Tickets (For Student Wallet)
-exports.getUserTickets = async (req, res) => {
-    try {
-        const { userId } = req.params;
-        const tickets = await Ticket.find({ userId }).populate('eventId');
-        res.status(200).json(tickets);
-    } catch (error) {
-        res.status(500).json({ message: error.message });
+// @desc    Cancel a ticket pass and release seat
+// @route   DELETE /api/tickets/:ticketId
+export const cancelTicket = async (req, res) => {
+  try {
+    const { ticketId } = req.params;
+    const deletedTicket = await Ticket.findByIdAndDelete(ticketId);
+    
+    if (!deletedTicket) {
+      return res.status(404).json({ message: "Ticket not found." });
     }
+
+    res.status(200).json({ message: "Ticket successfully cancelled and seat released." });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 };
 
-// Cancel Ticket & Release Seat
-exports.cancelTicket = async (req, res) => {
-    try {
-        const { ticketId } = req.params;
-        const ticket = await Ticket.findById(ticketId);
-        
-        if (!ticket) {
-            return res.status(404).json({ message: "Ticket not found" });
-        }
-
-        // Find the event and decrement reserved count
-        const event = await Event.findById(ticket.eventId);
-        if (event && event.reservedCount > 0) {
-            event.reservedCount -= 1;
-            await event.save();
-        }
-
-        // Delete the ticket document
-        await Ticket.findByIdAndDelete(ticketId);
-
-        res.status(200).json({ message: "Pass cancelled successfully. Seat released." });
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
+// @desc    Get attendee roster for an event (Organizer)
+// @route   GET /api/tickets/event/:eventId/attendees
+export const getEventAttendees = async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const attendees = await Ticket.find({ event: eventId });
+    res.status(200).json(attendees);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 };
